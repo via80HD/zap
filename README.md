@@ -26,9 +26,9 @@ All output is cleanly formatted with color and boxed headers.
 
 You don’t need pip, virtualenvs, or any Python packaging nonsense.
 
-1. Just open the command line application of your choice & run the following command.
+1. Just open the command line application of your choice & paste the following command then press enter.
 ```
-this will contain the actual command soon
+curl -fsSL https://raw.githubusercontent.com/via80HD/zap/main/install-zap.sh | bash
 ```
 
 This will do all of the work for you, minimizing any risk that comes with having you run through all the steps manually. You will know that the install has completed when you see a message at the bottom of your command line app that says

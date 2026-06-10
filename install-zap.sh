@@ -70,7 +70,6 @@ ensure_package "python3"
 # --- 2. Ensure Install Directory Exists ---
 echo
 echo "[2/5] Ensuring install directory exists: $INSTALL_DIR"
-# Force-create directory path ensuring ownership matches current user
 mkdir -p "$INSTALL_DIR"
 echo "✔ Install directory ready."
 
@@ -96,23 +95,35 @@ case ":$PATH:" in
         echo "✔ $INSTALL_DIR is already in your PATH."
         ;;
     *)
-        # Identify the user's active login shell configuration file
-        SHELL_RC="$HOME/.bashrc"
-        if [ -f "$HOME/.zshrc" ]; then
-            SHELL_RC="$HOME/.zshrc"
-        elif [ -f "$HOME/.profile" ]; then
-            SHELL_RC="$HOME/.profile"
-        fi
+        echo "$INSTALL_DIR is not in PATH. Updating shell profiles..."
+        
+        # Track if we successfully updated at least one file
+        UPDATED_ANY=false
 
-        echo "Adding $INSTALL_DIR to PATH in $SHELL_RC..."
-        # Append without asking to handle curl | bash clean pipelines
-        echo "" >> "$SHELL_RC"
-        echo "# Zap CLI installation path update" >> "$SHELL_RC"
-        echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$SHELL_RC"
-        echo "✔ Added to $SHELL_RC."
-        echo
-        echo "👉 To use zap immediately in this terminal session, run:"
-        echo "   source $SHELL_RC"
+        # Array of standard shell profile files to check
+        PROFILES=("$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile")
+
+        for PROFILE in "${PROFILES[@]}"; do
+            if [ -f "$PROFILE" ]; then
+                # Check if the path is already mentioned in this specific file
+                if ! grep -q "$INSTALL_DIR" "$PROFILE"; then
+                    echo "" >> "$PROFILE"
+                    echo "# Zap CLI installation path update" >> "$PROFILE"
+                    echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$PROFILE"
+                    echo "✔ Added to $PROFILE"
+                    UPDATED_ANY=true
+                fi
+            fi
+        done
+
+        if [ "$UPDATED_ANY" = true ]; then
+            echo
+            echo "👉 PATH updates applied! To use zap immediately in this window, run:"
+            echo "   export PATH=\"$INSTALL_DIR:\$PATH\""
+        else
+            echo "⚠️ Could not find a standard profile file (~/.bashrc, ~/.zshrc, or ~/.profile)."
+            echo "Please manually add $INSTALL_DIR to your system PATH."
+        fi
         ;;
 esac
 

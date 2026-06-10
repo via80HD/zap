@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# Exit immediately if a command exits with a non-zero status
 set -e
 
 ZAP_URL="https://raw.githubusercontent.com/via80HD/zap/main/zap"
@@ -26,117 +27,98 @@ detect_pkg_manager() {
     fi
 }
 
-install_package() {
+# --- helper: auto install package ---
+ensure_package() {
     local pkg="$1"
+    if command -v "$pkg" >/dev/null 2>&1; then
+        echo "✔ $pkg is already installed."
+        return
+    fi
+
+    echo "⚙ '$pkg' is missing. Attempting automatic installation..."
     local pm
     pm="$(detect_pkg_manager)"
 
     if [ -z "$pm" ]; then
-        echo "Could not detect a supported package manager."
-        echo "Please install '$pkg' manually and re-run this installer."
+        echo "❌ Error: Could not detect a supported package manager."
+        echo "Please install '$pkg' manually and re-run this script."
         exit 1
     fi
 
-    echo
-    read -r -p "'$pkg' is not installed. Install it now with sudo $pm? (y/n): " ans
-    case "$ans" in
-        y|Y)
-            echo
-            echo "Installing $pkg using $pm..."
-            case "$pm" in
-                apt)
-                    sudo apt update && sudo apt install -y "$pkg"
-                    ;;
-                dnf)
-                    sudo dnf install -y "$pkg"
-                    ;;
-                pacman)
-                    sudo pacman -Sy --noconfirm "$pkg"
-                    ;;
-                zypper)
-                    sudo zypper install -y "$pkg"
-                    ;;
-            esac
+    case "$pm" in
+        apt)
+            sudo apt update -y && sudo apt install -y "$pkg"
             ;;
-        *)
-            echo "Cannot continue without '$pkg'. Exiting."
-            exit 1
+        dnf)
+            sudo dnf install -y "$pkg"
+            ;;
+        pacman)
+            sudo pacman -Sy --noconfirm "$pkg"
+            ;;
+        zypper)
+            sudo zypper install -y "$pkg"
             ;;
     esac
+    echo "✔ Successfully installed $pkg."
 }
 
-# --- check curl ---
-echo "[1/6] Checking for curl..."
-if ! command -v curl >/dev/null 2>&1; then
-    install_package "curl"
-else
-    echo "curl is present."
-fi
+# --- 1. Check Dependencies ---
+echo "[1/5] Checking environment dependencies..."
+ensure_package "curl"
+ensure_package "python3"
 
-# --- check unzip (optional, but ready for future use) ---
+# --- 2. Ensure Install Directory Exists ---
 echo
-echo "[2/6] Checking for unzip..."
-if ! command -v unzip >/dev/null 2>&1; then
-    install_package "unzip"
-else
-    echo "unzip is present."
-fi
-
-# --- ensure install dir exists ---
-echo
-echo "[3/6] Ensuring install directory exists: $INSTALL_DIR"
+echo "[2/5] Ensuring install directory exists: $INSTALL_DIR"
+# Force-create directory path ensuring ownership matches current user
 mkdir -p "$INSTALL_DIR"
-echo "Install directory ready."
+echo "✔ Install directory ready."
 
-# --- download zap ---
+# --- 3. Download Zap ---
 echo
-echo "[4/6] Downloading zap..."
+echo "[3/5] Downloading zap..."
 echo "From: $ZAP_URL"
 echo "To:   $ZAP_PATH"
 curl -fsSL "$ZAP_URL" -o "$ZAP_PATH"
-echo "Download complete."
+echo "✔ Download complete."
 
-# --- make executable ---
+# --- 4. Make Executable ---
 echo
-echo "[5/6] Setting executable permissions..."
+echo "[4/5] Setting executable permissions..."
 chmod +x "$ZAP_PATH"
-echo "Permissions set."
+echo "✔ Permissions set."
 
-# --- ensure PATH contains ~/.local/bin ---
+# --- 5. Ensure PATH contains ~/.local/bin ---
 echo
-echo "[6/6] Checking PATH for $INSTALL_DIR..."
+echo "[5/5] Configuring PATH..."
 case ":$PATH:" in
     *":$INSTALL_DIR:"*)
-        echo "$INSTALL_DIR is already in PATH."
+        echo "✔ $INSTALL_DIR is already in your PATH."
         ;;
     *)
-        echo "$INSTALL_DIR is not in PATH."
+        # Identify the user's active login shell configuration file
         SHELL_RC="$HOME/.bashrc"
-
-        if [ -f "$HOME/.zshrc" ] && [ -n "$ZSH_VERSION" ]; then
+        if [ -f "$HOME/.zshrc" ]; then
             SHELL_RC="$HOME/.zshrc"
+        elif [ -f "$HOME/.profile" ]; then
+            SHELL_RC="$HOME/.profile"
         fi
 
+        echo "Adding $INSTALL_DIR to PATH in $SHELL_RC..."
+        # Append without asking to handle curl | bash clean pipelines
+        echo "" >> "$SHELL_RC"
+        echo "# Zap CLI installation path update" >> "$SHELL_RC"
+        echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$SHELL_RC"
+        echo "✔ Added to $SHELL_RC."
         echo
-        read -r -p "Add $INSTALL_DIR to PATH in $SHELL_RC? (y/n): " ans
-        case "$ans" in
-            y|Y)
-                echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$SHELL_RC"
-                echo "Added to $SHELL_RC."
-                echo
-                echo "To apply it now, run:"
-                echo "  source \"$SHELL_RC\""
-                ;;
-            *)
-                echo "Skipping PATH modification. You must add $INSTALL_DIR to PATH manually."
-                ;;
-        esac
+        echo "👉 To use zap immediately in this terminal session, run:"
+        echo "   source $SHELL_RC"
         ;;
 esac
 
 echo
 echo "====================================="
-echo "         ZAP IS INSTALLED!           "
+echo "          ZAP IS INSTALLED!          "
 echo "====================================="
-echo
-echo "Try running: zap info"
+echo "Try opening a new terminal or source your config file, then type:"
+echo "  zap info"

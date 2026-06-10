@@ -1,249 +1,135 @@
-#!/usr/bin/env python3
-import sys
-import os
-from pathlib import Path
-from zipfile import ZipFile
-from datetime import datetime
-import urllib.request
+#!/usr/bin/env bash
 
-# ---------------- COLORS ----------------
-RESET = "\033[0m"
-BOLD = "\033[1m"
-CYAN = "\033[96m"
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-RED = "\033[91m"
+# Exit immediately if a command exits with a non-zero status
+set -e
 
-# ---------------- HELPERS ----------------
-def human_size(num):
-    for unit in ["B", "KB", "MB", "GB"]:
-        if num < 1024:
-            return f"{num:.1f} {unit}"
-        num /= 1024
-    return f"{num:.1f} TB"
+ZAP_URL="https://raw.githubusercontent.com/via80HD/zap/main/zap"
+INSTALL_DIR="$HOME/.local/bin"
+ZAP_PATH="$INSTALL_DIR/zap"
 
-def fmt_time(ts):
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+echo "====================================="
+echo "        ZAP INSTALLER STARTED        "
+echo "====================================="
+echo
 
-def header(title):
-    line = "─" * (len(title) + 2)
-    print(f"{CYAN}{line}\n {title}\n{line}{RESET}")
+# --- helper: detect package manager ---
+detect_pkg_manager() {
+    if command -v apt >/dev/null 2>&1; then
+        echo "apt"
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "dnf"
+    elif command -v pacman >/dev/null 2>&1; then
+        echo "pacman"
+    elif command -v zypper >/dev/null 2>&1; then
+        echo "zypper"
+    else
+        echo ""
+    fi
+}
 
-# ---------------- ZIP ----------------
-def zip_files(directory):
-    zip_filename = f"{directory.name}.zip"
-    with ZipFile(zip_filename, 'w') as zip_file:
-        for file in directory.iterdir():
-            if file.is_file():
-                zip_file.write(file, arcname=file.name)
-    print(f"{GREEN}Created zip file: {zip_filename}{RESET}")
-
-# ---------------- UNZIP ----------------
-def unzip_files(zip_file):
-    with ZipFile(zip_file, 'r') as zip_ref:
-        zip_ref.extractall(zip_file.parent)
-    print(f"{GREEN}Extracted: {zip_file.name}{RESET}")
-
-# ---------------- LIST ----------------
-def list_zip_files(directory):
-    zips = list(directory.glob("*.zip"))
-    header("ZIP FILES")
-    if not zips:
-        print("No zip files found.")
+# --- helper: auto install package ---
+ensure_package() {
+    local pkg="$1"
+    if command -v "$pkg" >/dev/null 2>&1; then
+        echo "✔ $pkg is already installed."
         return
-    for z in zips:
-        print(f" - {z.name}")
+    fi
 
-# ---------------- DELETE ----------------
-def delete_zip_files(target):
-    if target is None:
-        directory = Path.cwd()
-        zips = list(directory.glob("*.zip"))
-        header("DELETE ZIP FILES")
-        if not zips:
-            print("No zip files to delete.")
-            return
-        for z in zips:
-            z.unlink()
-            print(f"{RED}Deleted: {z.name}{RESET}")
-    else:
-        file = Path(target)
-        header("DELETE ZIP FILE")
-        if file.is_file() and file.suffix == ".zip":
-            file.unlink()
-            print(f"{RED}Deleted: {file.name}{RESET}")
-        else:
-            print("Error: Not a valid zip file.")
+    echo "⚙ '$pkg' is missing. Attempting automatic installation..."
+    local pm
+    pm="$(detect_pkg_manager)"
 
-# ---------------- INFO: ZIP ----------------
-def info_zip_file(zip_path):
-    zip_path = Path(zip_path)
-    if not (zip_path.is_file() and zip_path.suffix == ".zip"):
-        print("Error: Not a valid zip file.")
-        return
+    if [ -z "$pm" ]; then
+        echo "❌ Error: Could not detect a supported package manager."
+        echo "Please install '$pkg' manually and re-run this script."
+        exit 1
+    fi
 
-    header("ZIP INFO")
+    case "$pm" in
+        apt)
+            sudo apt update -y && sudo apt install -y "$pkg"
+            ;;
+        dnf)
+            sudo dnf install -y "$pkg"
+            ;;
+        pacman)
+            sudo pacman -Sy --noconfirm "$pkg"
+            ;;
+        zypper)
+            sudo zypper install -y "$pkg"
+            ;;
+    esac
+    echo "✔ Successfully installed $pkg."
+}
 
-    print(f"Archive: {zip_path.name}")
-    print(f"Location: {zip_path.parent}")
-    print(f"Size: {human_size(zip_path.stat().st_size)}")
-    print(f"Modified: {fmt_time(zip_path.stat().st_mtime)}\n")
+# --- 1. Check Dependencies ---
+echo "[1/5] Checking environment dependencies..."
+ensure_package "curl"
+ensure_package "python3"
 
-    with ZipFile(zip_path, 'r') as zip_ref:
-        print("Contents:")
-        for info in zip_ref.infolist():
-            print(f"  {info.filename}")
-            print(f"    Modified: {info.date_time}")
-            print(f"    Original size: {human_size(info.file_size)}")
-            print(f"    Compressed size: {human_size(info.compress_size)}\n")
+# --- 2. Ensure Install Directory Exists ---
+echo
+echo "[2/5] Ensuring install directory exists: $INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
+echo "✔ Install directory ready."
 
-# ---------------- INFO: DIRECTORY ----------------
-def info_directory(directory):
-    directory = Path(directory)
-    header("DIRECTORY INFO")
+# --- 3. Download Zap ---
+echo
+echo "[3/5] Downloading zap..."
+echo "From: $ZAP_URL"
+echo "To:   $ZAP_PATH"
+curl -fsSL "$ZAP_URL" -o "$ZAP_PATH"
+echo "✔ Download complete."
 
-    print(f"Directory: {directory}")
-    print(f"Modified: {fmt_time(directory.stat().st_mtime)}")
+# --- 4. Make Executable ---
+echo
+echo "[4/5] Setting executable permissions..."
+chmod +x "$ZAP_PATH"
+echo "✔ Permissions set."
 
-    files = list(directory.iterdir())
-    print(f"Total items: {len(files)}")
-
-    zips = list(directory.glob("*.zip"))
-    print(f"Zip files: {len(zips)}\n")
-
-    if zips:
-        print("Zip List:")
-        for z in zips:
-            print(f" - {z.name}")
-
-# ---------------- CLEAN ----------------
-def clean_directory(directory):
-    directory = Path(directory)
-    header("CLEAN DIRECTORY")
-    
-    moved_count = 0
-    protected_folders = {"no_ext", "otf", "pdf", "ttf", "txt", "zip"}
-
-    for item in directory.iterdir():
-        if item.is_file():
-            if item.suffix:
-                folder_name = item.suffix[1:].lower()
-            else:
-                folder_name = "no_ext"
-                
-            if item.name in protected_folders:
-                continue
-
-            target_dir = directory / folder_name
-            target_dir.mkdir(exist_ok=True)
-            
-            try:
-                item.rename(target_dir / item.name)
-                print(f"{GREEN}Moved:{RESET} {item.name} -> {folder_name}/")
-                moved_count += 1
-            except Exception as e:
-                print(f"{RED}Error moving {item.name}:{RESET} {e}")
-
-    if moved_count == 0:
-        print("Directory is already clean or no files were found to organize.")
-    else:
-        print(f"\n{GREEN}Success! Organized {moved_count} files.{RESET}")
-
-# ---------------- UPDATE ----------------
-def update_zap():
-    header("UPDATING ZAP")
-    url = "https://raw.githubusercontent.com/via80HD/zap/main/zap"
-    
-    # Identify where the script running right now lives on the machine
-    current_script_path = Path(__file__).resolve()
-    
-    print(f"Fetching latest version from GitHub...")
-    try:
-        # Request the raw script file contents
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response:
-            new_code = response.read()
-            
-        print(f"Updating local file: {current_script_path}")
-        # Overwrite the running binary file cleanly
-        with open(current_script_path, 'wb') as f:
-            f.write(new_code)
-            
-        # Ensure it retains its executable permissions
-        current_script_path.chmod(0o755)
-        print(f"\n{GREEN}Success! zap has been updated to the latest version.{RESET}")
+# --- 5. Ensure PATH contains ~/.local/bin ---
+echo
+echo "[5/5] Configuring PATH..."
+case ":$PATH:" in
+    *":$INSTALL_DIR:"*)
+        echo "✔ $INSTALL_DIR is already in your PATH."
+        ;;
+    *)
+        echo "$INSTALL_DIR is not in PATH. Updating shell profiles..."
         
-    except Exception as e:
-        print(f"{RED}Update failed:{RESET} {e}")
-        print("Make sure you are connected to the internet or manually run the installer script.")
+        # Track if we successfully updated at least one file
+        UPDATED_ANY=false
 
-# ---------------- MAIN ----------------
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: zap [zip|unzip|list|delete|info|clean|update] [file_or_directory]")
-        return
+        # Array of standard shell profile files to check
+        PROFILES=("$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile")
 
-    command = sys.argv[1]
+        for PROFILE in "${PROFILES[@]}"; do
+            if [ -f "$PROFILE" ]; then
+                # Check if the path is already mentioned in this specific file
+                if ! grep -q "$INSTALL_DIR" "$PROFILE"; then
+                    echo "" >> "$PROFILE"
+                    echo "# Zap CLI installation path update" >> "$PROFILE"
+                    echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$PROFILE"
+                    echo "✔ Added to $PROFILE"
+                    UPDATED_ANY=true
+                fi
+            fi
+        done
 
-    if command == "zip":
-        if len(sys.argv) == 3:
-            directory_path = Path(sys.argv[2])
-            if directory_path.is_dir():
-                zip_files(directory_path)
-            else:
-                print("Error: Specified path is not a directory.")
-        else:
-            zip_files(Path.cwd())
+        if [ "$UPDATED_ANY" = true ]; then
+            echo
+            echo "👉 PATH updates applied! To use zap immediately in this window, run:"
+            echo "   export PATH=\"$INSTALL_DIR:\$PATH\""
+        else
+            echo "⚠️ Could not find a standard profile file (~/.bashrc, ~/.zshrc, or ~/.profile)."
+            echo "Please manually add $INSTALL_DIR to your system PATH."
+        fi
+        ;;
+esac
 
-    elif command == "unzip":
-        if len(sys.argv) == 3:
-            zip_file_path = Path(sys.argv[2])
-            if zip_file_path.is_file() and zip_file_path.suffix == '.zip':
-                unzip_files(zip_file_path)
-            else:
-                print("Error: Specified file is not a valid zip file.")
-        else:
-            current_directory = Path.cwd()
-            for zip_file in current_directory.glob("*.zip"):
-                unzip_files(zip_file)
-
-    elif command == "list":
-        if len(sys.argv) == 3:
-            directory = Path(sys.argv[2])
-            if directory.is_dir():
-                list_zip_files(directory)
-            else:
-                print("Error: Not a directory.")
-        else:
-            list_zip_files(Path.cwd())
-
-    elif command == "delete":
-        if len(sys.argv) == 3:
-            delete_zip_files(sys.argv[2])
-        else:
-            delete_zip_files(None)
-
-    elif command == "info":
-        if len(sys.argv) == 3:
-            info_zip_file(sys.argv[2])
-        else:
-            info_directory(Path.cwd())
-
-    elif command == "clean":
-        if len(sys.argv) == 3:
-            directory = Path(sys.argv[2])
-            if directory.is_dir():
-                clean_directory(directory)
-            else:
-                print("Error: Specified path is not a directory.")
-        else:
-            clean_directory(Path.cwd())
-
-    elif command == "update":
-        update_zap()
-
-    else:
-        print("Error: Unknown command. Use zip, unzip, list, delete, info, clean, or update.")
-
-if __name__ == "__main__":
-    main()
+echo
+echo "====================================="
+echo "          ZAP IS INSTALLED!          "
+echo "====================================="
+echo "Try opening a new terminal or source your config file, then type:"
+echo "  zap info"

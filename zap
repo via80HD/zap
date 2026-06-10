@@ -115,6 +115,47 @@ def info_directory(directory):
         for z in zips:
             print(f" - {z.name}")
 
+# ---------------- CLEAN ----------------
+def clean_directory(directory):
+    directory = Path(directory)
+    header("CLEAN DIRECTORY")
+    
+    # Track if we actually moved anything
+    moved_count = 0
+    
+    # List of folder names we are creating so we don't try to move them
+    protected_folders = {"no_ext", "otf", "pdf", "ttf", "txt", "zip"}
+
+    for item in directory.iterdir():
+        # Only process files, skip directories (like our target folders)
+        if item.is_file():
+            # Determine the target folder name
+            if item.suffix:
+                # Remove the leading dot (e.g., '.ttf' -> 'ttf')
+                folder_name = item.suffix[1:].lower()
+            else:
+                folder_name = "no_ext"
+                
+            # Skip if it somehow matches a protected name but is a file
+            if item.name in protected_folders:
+                continue
+
+            # Create the target subdirectory if it doesn't exist
+            target_dir = directory / folder_name
+            target_dir.mkdir(exist_ok=True)
+            
+            # Move the file
+            try:
+                item.rename(target_dir / item.name)
+                print(f"{GREEN}Moved:{RESET} {item.name} -> {folder_name}/")
+                moved_count += 1
+            except Exception as e:
+                print(f"{RED}Error moving {item.name}:{RESET} {e}")
+
+    if moved_count == 0:
+        print("Directory is already clean or no files were found to organize.")
+    else:
+        print(f"\n{GREEN}Success! Organized {moved_count} files.{RESET}")
 # ---------------- MAIN ----------------
 def main():
     if len(sys.argv) < 2:
